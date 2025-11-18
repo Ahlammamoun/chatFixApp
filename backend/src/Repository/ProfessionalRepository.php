@@ -16,6 +16,78 @@ class ProfessionalRepository extends ServiceEntityRepository
         parent::__construct($registry, Professional::class);
     }
 
+
+    public function searchProfessionals(
+        ?string $speciality,
+        ?string $zone,
+        ?string $query,
+        ?float $lat,
+        ?float $lng
+    ): array {
+        $conn = $this->getEntityManager()->getConnection();
+
+        // Distance Haversine ou valeur très haute si pas de coords
+        $distanceSql = ($lat !== null && $lng !== null)
+            ? "(6371 * acos(
+                cos(radians(:lat)) 
+                * cos(radians(p.latitude)) 
+                * cos(radians(p.longitude) - radians(:lng)) 
+                + sin(radians(:lat)) 
+                * sin(radians(p.latitude))
+            ))"
+            : "99999";
+
+        $sql = "
+        SELECT 
+            p.*,
+            $distanceSql AS distance,
+            s.name AS speciality
+        FROM professional p
+        INNER JOIN speciality s ON p.speciality_id = s.id
+        WHERE p.availability = 1
+    ";
+
+        $params = [];
+        $types = [];
+
+        if ($speciality) {
+            $sql .= " AND s.name LIKE :spec";
+            $params['spec'] = "%$speciality%";
+        }
+
+        if ($zone) {
+            $sql .= " AND LOWER(p.zone) LIKE LOWER(:zone)";
+            $params['zone'] = "%$zone%";
+        }
+
+        if ($query) {
+            $sql .= "
+            AND (
+                p.full_name LIKE :q
+                OR p.description LIKE :q
+                OR p.company_name LIKE :q
+            )
+        ";
+            $params['q'] = "%$query%";
+        }
+
+        // Ajout des paramètres lat/lng AVANT exécution
+        if ($lat !== null && $lng !== null) {
+            $params['lat'] = $lat;
+            $params['lng'] = $lng;
+            $sql .= " ORDER BY distance ASC";
+        } else {
+            $sql .= " ORDER BY p.price_per_hour ASC";
+        }
+
+        $stmt = $conn->prepare($sql);
+        $result = $stmt->executeQuery($params);
+
+        return $result->fetchAllAssociative();
+    }
+
+
+
     //    /**
     //     * @return Professional[] Returns an array of Professional objects
     //     */

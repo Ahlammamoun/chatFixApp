@@ -3,7 +3,11 @@
 namespace App\Entity;
 
 use App\Repository\ProfessionalRepository;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
+use App\Validator\SiretExists;
+use Symfony\Component\Validator\Constraints as Assert;
 use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: ProfessionalRepository::class)]
@@ -17,8 +21,9 @@ class Professional
     #[ORM\Column(length: 255)]
     private ?string $fullName = null;
 
-    #[ORM\Column(length: 255)]
-    private ?string $speciality = null;
+    #[ORM\ManyToOne]
+    #[ORM\JoinColumn(nullable: false)]
+    private ?Speciality $speciality = null;
 
     #[ORM\Column(type: Types::TEXT)]
     private ?string $description = null;
@@ -32,13 +37,46 @@ class Professional
     #[ORM\Column]
     private ?bool $availability = null;
 
-       // 🔹 Ajout du champ SIRET
     #[ORM\Column(length: 14, unique: true)]
+    #[Assert\NotBlank(message: 'Le SIRET est requis.')]
+    #[SiretExists]   // 👈 vérifie format + Luhn + API Sirene
     private ?string $siret = null;
 
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $companyName = null; // ✅ Nouveau champ
+
+    #[ORM\Column(type: 'float', nullable: true)]
+    private ?float $latitude = null;
+
+    #[ORM\Column(type: 'float', nullable: true)]
+    private ?float $longitude = null;
+
+    #[ORM\Column(length: 10, nullable: true)]
+    private ?string $postalCode = null;
 
     #[ORM\ManyToOne(inversedBy: 'professionals')]
     private ?User $user = null;
+
+    /**
+     * @var Collection<int, Rating>
+     */
+    #[ORM\OneToMany(targetEntity: Rating::class, mappedBy: 'Rating')]
+    private Collection $ratings;
+
+    #[ORM\Column(length: 20, nullable: true)]
+    #[Assert\Regex(
+        pattern: '/^(\+?\d{1,3}[\s.-]?)?\d{6,15}$/',
+        message: 'Le numéro de téléphone n’est pas valide.'
+    )]
+    private ?string $phoneNumber = null;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $profilePicture = null;
+
+    public function __construct()
+    {
+        $this->ratings = new ArrayCollection();
+    }
 
     public function getId(): ?int
     {
@@ -57,15 +95,14 @@ class Professional
         return $this;
     }
 
-    public function getSpeciality(): ?string
+    public function getSpeciality(): ?Speciality
     {
         return $this->speciality;
     }
 
-    public function setSpeciality(string $speciality): static
+    public function setSpeciality(?Speciality $speciality): static
     {
         $this->speciality = $speciality;
-
         return $this;
     }
 
@@ -116,8 +153,6 @@ class Professional
 
         return $this;
     }
-
-        // 🔹 Getter / Setter du SIRET
     public function getSiret(): ?string
     {
         return $this->siret;
@@ -125,34 +160,22 @@ class Professional
 
     public function setSiret(string $siret): static
     {
-        if (!preg_match('/^\d{14}$/', $siret)) {
-            throw new \InvalidArgumentException('Le numéro SIRET doit contenir exactement 14 chiffres.');
-        }
-
-        if (!$this->isValidSiret($siret)) {
-            throw new \InvalidArgumentException('Le numéro SIRET fourni est invalide.');
-        }
-
+        // Pas d’exception ici — la validation s’en charge
         $this->siret = $siret;
         return $this;
     }
 
-    private function isValidSiret(string $siret): bool
+    public function getCompanyName(): ?string
     {
-        // Vérifie avec l’algorithme de Luhn
-        $sum = 0;
-        for ($i = 0; $i < 14; $i++) {
-            $digit = (int)$siret[$i];
-            if ($i % 2 === 0) {
-                $digit *= 2;
-                if ($digit > 9) {
-                    $digit -= 9;
-                }
-            }
-            $sum += $digit;
-        }
-        return $sum % 10 === 0;
+        return $this->companyName;
     }
+
+    public function setCompanyName(?string $companyName): static
+    {
+        $this->companyName = $companyName;
+        return $this;
+    }
+
     public function getUser(): ?User
     {
         return $this->user;
@@ -162,6 +185,91 @@ class Professional
     {
         $this->user = $user;
 
+        return $this;
+    }
+
+    /**
+     * @return Collection<int, Rating>
+     */
+    public function getRatings(): Collection
+    {
+        return $this->ratings;
+    }
+
+    public function addRating(Rating $rating): static
+    {
+        if (!$this->ratings->contains($rating)) {
+            $this->ratings->add($rating);
+            $rating->setRating($this);
+        }
+
+        return $this;
+    }
+
+    public function removeRating(Rating $rating): static
+    {
+        if ($this->ratings->removeElement($rating)) {
+            // set the owning side to null (unless already changed)
+            if ($rating->getRating() === $this) {
+                $rating->setRating(null);
+            }
+        }
+
+        return $this;
+    }
+
+    public function getPhoneNumber(): ?string
+    {
+        return $this->phoneNumber;
+    }
+
+    public function setPhoneNumber(?string $phoneNumber): static
+    {
+        $this->phoneNumber = $phoneNumber;
+        return $this;
+    }
+
+    public function getProfilePicture(): ?string
+    {
+        return $this->profilePicture;
+    }
+
+    public function setProfilePicture(?string $profilePicture): static
+    {
+        $this->profilePicture = $profilePicture;
+        return $this;
+    }
+
+    public function getLatitude(): ?float
+    {
+        return $this->latitude;
+    }
+
+    public function setLatitude(?float $latitude): static
+    {
+        $this->latitude = $latitude;
+        return $this;
+    }
+
+    public function getLongitude(): ?float
+    {
+        return $this->longitude;
+    }
+
+    public function setLongitude(?float $longitude): static
+    {
+        $this->longitude = $longitude;
+        return $this;
+    }
+
+    public function getPostalCode(): ?string
+    {
+        return $this->postalCode;
+    }
+
+    public function setPostalCode(?string $postalCode): static
+    {
+        $this->postalCode = $postalCode;
         return $this;
     }
 }

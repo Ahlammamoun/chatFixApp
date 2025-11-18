@@ -33,6 +33,8 @@ security:
 
     access_control:
         - { path: ^/api/register, roles: PUBLIC_ACCESS }
+        - { path: ^/api/professionals, roles: PUBLIC_ACCESS }
+        - { path: ^/api/specialities, roles: PUBLIC_ACCESS }
         # Autorise l'accès public à la connexion
         - { path: ^/api/login, roles: PUBLIC_ACCESS }
         # Toutes les autres routes /api nécessitent un JWT valide

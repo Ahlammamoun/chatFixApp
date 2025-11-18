@@ -11,7 +11,7 @@
         "api-platform/symfony": "^4.2",
         "doctrine/dbal": "^3",
         "doctrine/doctrine-bundle": "^2.18",
-        "doctrine/doctrine-migrations-bundle": "^3.5",
+        "doctrine/doctrine-migrations-bundle": "3.5.0",
         "doctrine/orm": "^3.5",
         "lexik/jwt-authentication-bundle": "^3.1",
         "nelmio/cors-bundle": "^2.6",
