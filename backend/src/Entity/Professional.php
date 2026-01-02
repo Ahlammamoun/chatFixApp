@@ -57,6 +57,27 @@ class Professional
     #[ORM\ManyToOne(inversedBy: 'professionals')]
     private ?User $user = null;
 
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $assuranceDoc = null;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $identityDoc = null;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $proTitleDoc = null;
+
+    // RIB : soit IBAN en texte, soit un fichier
+    #[ORM\Column(length: 34, nullable: true)]
+    #[Assert\Iban(message: "IBAN invalide.")]
+    private ?string $ribIban = null;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $ribDoc = null;
+
+
+
+
     /**
      * @var Collection<int, Rating>
      */
@@ -270,6 +291,56 @@ class Professional
     public function setPostalCode(?string $postalCode): static
     {
         $this->postalCode = $postalCode;
+        return $this;
+    }
+
+    public function getAssuranceDoc(): ?string
+    {
+        return $this->assuranceDoc;
+    }
+    public function setAssuranceDoc(?string $v): static
+    {
+        $this->assuranceDoc = $v;
+        return $this;
+    }
+
+    public function getIdentityDoc(): ?string
+    {
+        return $this->identityDoc;
+    }
+    public function setIdentityDoc(?string $v): static
+    {
+        $this->identityDoc = $v;
+        return $this;
+    }
+
+    public function getProTitleDoc(): ?string
+    {
+        return $this->proTitleDoc;
+    }
+    public function setProTitleDoc(?string $v): static
+    {
+        $this->proTitleDoc = $v;
+        return $this;
+    }
+
+    public function getRibIban(): ?string
+    {
+        return $this->ribIban;
+    }
+    public function setRibIban(?string $v): static
+    {
+        $this->ribIban = $v;
+        return $this;
+    }
+
+    public function getRibDoc(): ?string
+    {
+        return $this->ribDoc;
+    }
+    public function setRibDoc(?string $v): static
+    {
+        $this->ribDoc = $v;
         return $this;
     }
 }

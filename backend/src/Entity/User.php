@@ -9,6 +9,7 @@ use Doctrine\ORM\Mapping as ORM;
 use ApiPlatform\Metadata\ApiResource;
 use Symfony\Component\Security\Core\User\UserInterface;
 use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
+use Symfony\Component\Validator\Constraints as Assert;
 
 #[ORM\Entity(repositoryClass: UserRepository::class)]
 #[ApiResource]
@@ -22,7 +23,13 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $email = null;
 
+    #[ORM\Column(length: 100, nullable: true)]
+    private ?string $name = null;
+
+    #[ORM\Column(length: 100, nullable: true)]
+    private ?string $lastname = null;
     #[ORM\Column(length: 255)]
+
     private ?string $password = null;
 
     #[ORM\Column]
@@ -33,6 +40,13 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
 
     #[ORM\Column(nullable: true)]
     private ?float $longitude = null;
+
+    #[ORM\Column(length: 34, nullable: true)]
+    #[Assert\Iban(message: 'IBAN invalide.')]
+    private ?string $ribIban = null;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $ribDoc = null;
 
     /**                  
      * @var Collection<int, Professional>
@@ -68,7 +82,25 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
 
         return $this;
     }
+    public function getName(): ?string
+    {
+        return $this->name;
+    }
+    public function setName(?string $name): self
+    {
+        $this->name = $name;
+        return $this;
+    }
 
+    public function getLastname(): ?string
+    {
+        return $this->lastname;
+    }
+    public function setLastname(?string $lastname): self
+    {
+        $this->lastname = $lastname;
+        return $this;
+    }
     public function getPassword(): ?string
     {
         return $this->password;
@@ -172,6 +204,37 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function setLongitude(?float $lng): self
     {
         $this->longitude = $lng;
+        return $this;
+    }
+    public function getLatitude(): ?float
+    {
+        return $this->latitude;
+    }
+
+    public function getLongitude(): ?float
+    {
+        return $this->longitude;
+    }
+
+    public function getRibIban(): ?string
+    {
+        return $this->ribIban;
+    }
+
+    public function setRibIban(?string $ribIban): self
+    {
+        $this->ribIban = $ribIban;
+        return $this;
+    }
+
+    public function getRibDoc(): ?string
+    {
+        return $this->ribDoc;
+    }
+
+    public function setRibDoc(?string $ribDoc): self
+    {
+        $this->ribDoc = $ribDoc;
         return $this;
     }
 }

@@ -31,6 +31,10 @@ class MeController extends AbstractController
         $data = [
             'email' => $user->getEmail(),
             'role' => $role,
+            'lat'   => $user->getLatitude(),   // ⭐ OBLIGATOIRE
+            'lng'   => $user->getLongitude(),
+            'name' => $user->getName(),
+            'lastname' => $user->getLastname(),
         ];
 
         // 🔹 Si professionnel, inclure les infos du profil associé
@@ -46,6 +50,9 @@ class MeController extends AbstractController
                     'phoneNumber' => $pro->getPhoneNumber(),
                     'companyName' => $pro->getCompanyName(),
                     'profilePicture' => $pro->getProfilePicture(),
+                    'lat'           => $pro->getLatitude(),
+                    'lng'           => $pro->getLongitude(),
+             
                 ];
             }
         }

@@ -26,7 +26,7 @@ class ProfessionalRepository extends ServiceEntityRepository
     ): array {
         $conn = $this->getEntityManager()->getConnection();
 
-        // Distance Haversine ou valeur très haute si pas de coords
+        // Distance Haversine ou valeur fixe si pas de coords
         $distanceSql = ($lat !== null && $lng !== null)
             ? "(6371 * acos(
                 cos(radians(:lat)) 
@@ -48,30 +48,31 @@ class ProfessionalRepository extends ServiceEntityRepository
     ";
 
         $params = [];
-        $types = [];
 
+        // Filtre spécialité
         if ($speciality) {
             $sql .= " AND s.name LIKE :spec";
             $params['spec'] = "%$speciality%";
         }
 
+        // Filtre zone (SI TU EN VEUX PLUS TARD)
         if ($zone) {
             $sql .= " AND LOWER(p.zone) LIKE LOWER(:zone)";
             $params['zone'] = "%$zone%";
         }
 
+        // Recherche textuelle
         if ($query) {
             $sql .= "
             AND (
                 p.full_name LIKE :q
-                OR p.description LIKE :q
                 OR p.company_name LIKE :q
             )
         ";
             $params['q'] = "%$query%";
         }
 
-        // Ajout des paramètres lat/lng AVANT exécution
+        // TRI
         if ($lat !== null && $lng !== null) {
             $params['lat'] = $lat;
             $params['lng'] = $lng;
@@ -80,11 +81,16 @@ class ProfessionalRepository extends ServiceEntityRepository
             $sql .= " ORDER BY p.price_per_hour ASC";
         }
 
+        // 🚀 LIMITER à 10 RÉSULTATS — C’EST CE QUE TU VEUX EXACTEMENT
+        $sql .= " LIMIT 10";
+
+        // EXECUTION
         $stmt = $conn->prepare($sql);
         $result = $stmt->executeQuery($params);
 
         return $result->fetchAllAssociative();
     }
+
 
 
 
