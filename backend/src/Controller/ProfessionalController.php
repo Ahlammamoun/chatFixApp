@@ -464,6 +464,30 @@ class ProfessionalController extends AbstractController
         return $this->json($threads, 200);
     }
 
+
+
+    #[Route('/api/user/messages', methods: ['GET'])]
+    public function userInbox(EntityManagerInterface $em, MessageRepository $repo): JsonResponse
+    {
+        $user = $this->getUser();
+        if (!$user instanceof User) {
+            return $this->json(['error' => 'Unauthorized'], 401);
+        }
+
+        // Threads pour l’utilisateur connecté
+        $threads = $repo->findUserThreads($user->getId());
+
+        return $this->json($threads, 200);
+    }
+
+
+
+
+
+
+
+
+
     #[Route('/api/pro/messages/{clientId}', methods: ['GET'])]
     public function proConversation(
         int $clientId,
