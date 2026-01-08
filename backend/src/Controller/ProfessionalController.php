@@ -355,7 +355,14 @@ class ProfessionalController extends AbstractController
         $message = new Message();
         $message->setSender($sender);
         $message->setReceiver($receiver);
-        $message->setContent(trim($data['content']));
+        $content = trim((string) $data['content']);
+
+        if ($this->containsEmailOrPhone($content)) {
+            return $this->supportViolationResponse();
+        }
+
+        $message->setContent($content);
+
         $message->setCreatedAt(new \DateTimeImmutable());
 
         // 💾 Sauvegarde
@@ -538,12 +545,21 @@ class ProfessionalController extends AbstractController
         if (!$client) return $this->json(['error' => 'Client not found'], 404);
 
         $data = json_decode($request->getContent(), true) ?? [];
-        if (empty($data['content'])) return $this->json(['error' => 'Content required'], 400);
+        $content = trim((string) ($data['content'] ?? ''));
+
+        if ($content === '') {
+            return $this->json(['error' => 'Content required'], 400);
+        }
+
+        if ($this->containsEmailOrPhone($content)) {
+            return $this->supportViolationResponse();
+        }
 
         $msg = new Message();
         $msg->setSender($user);      // ✅ pro user
         $msg->setReceiver($client);  // ✅ client
-        $msg->setContent($data['content']);
+        $msg->setContent($content);
+
         $msg->setIsRead(false);
         $msg->setCreatedAt(new \DateTimeImmutable());
 
@@ -587,5 +603,30 @@ class ProfessionalController extends AbstractController
         $em->flush();
 
         return $this->json(['success' => true, 'status' => 'pending']);
+    }
+
+
+    // ✅ Bloque email + téléphone (sécurité chat)
+    private function containsEmailOrPhone(string $text): bool
+    {
+        $text = trim($text);
+
+        // Email (simple + robuste)
+        $emailPattern = '/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i';
+
+        // Téléphone (FR + international, avec espaces, +, -, ., parenthèses)
+        // => détecte 06 12 34 56 78, +33 6 12..., 0612345678, etc.
+        $phonePattern = '/(\+?\d[\d\s\-\.\(\)]{7,}\d)/';
+
+        return (bool) preg_match($emailPattern, $text) || (bool) preg_match($phonePattern, $text);
+    }
+
+    private function supportViolationResponse(): JsonResponse
+    {
+        return $this->json([
+            'success' => false,
+            'error' => 'FORBIDDEN_CONTACT_INFO',
+            'message' => "Pour votre sécurité, le partage d’email ou de numéro de téléphone est interdit dans le chat."
+        ], 400);
     }
 }
