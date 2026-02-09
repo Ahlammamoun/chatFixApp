@@ -14,9 +14,27 @@ security:
             pattern: ^/(_(profiler|wdt)|css|images|js)/
             security: false
 
-        # Point d'entrée pour la connexion JWT
-        login:
-            pattern:  ^/api/login
+        # ✅ ADMIN WEB (session + form_login)
+        admin:
+            pattern: ^/(admin|login|logout)
+            provider: app_user_provider
+            lazy: true
+            form_login:
+                login_path: app_login
+                check_path: app_login
+                username_parameter: email
+                password_parameter: password
+            logout:
+                path: app_logout
+                target: app_login
+            remember_me:
+                secret: '%kernel.secret%'
+                lifetime: 604800
+                path: /
+
+        # ✅ LOGIN API (JWT) -> /api/login
+        api_login:
+            pattern: ^/api/login
             stateless: true
             json_login:
                 check_path: /api/login
@@ -25,19 +43,27 @@ security:
                 success_handler: lexik_jwt_authentication.handler.authentication_success
                 failure_handler: lexik_jwt_authentication.handler.authentication_failure
 
-        # Firewall pour les routes protégées
+        # ✅ API protégée (JWT)
         api:
-            pattern:   ^/api
+            pattern: ^/api
             stateless: true
             jwt: ~
 
+
     access_control:
-        - { path: ^/api/register, roles: PUBLIC_ACCESS }
-        - { path: ^/api/professionals, roles: PUBLIC_ACCESS }
-        - { path: ^/api/specialities, roles: PUBLIC_ACCESS }
-        # Autorise l'accès public à la connexion
-        - { path: ^/api/login, roles: PUBLIC_ACCESS }
-        # Toutes les autres routes /api nécessitent un JWT valide
-        - { path: ^/api, roles: IS_AUTHENTICATED_FULLY }
+    # admin
+    - { path: ^/admin, roles: ROLE_ADMIN }
+    - { path: ^/login, roles: PUBLIC_ACCESS }
+    - { path: ^/logout, roles: PUBLIC_ACCESS }
+
+    # public api
+    - { path: ^/api/stripe/webhook$, roles: PUBLIC_ACCESS }
+    - { path: ^/api/register, roles: PUBLIC_ACCESS }
+    - { path: ^/api/professionals, roles: PUBLIC_ACCESS }
+    - { path: ^/api/specialities, roles: PUBLIC_ACCESS }
+    - { path: ^/api/login, roles: PUBLIC_ACCESS }
+
+    # le reste de l'API = JWT obligatoire
+    - { path: ^/api, roles: IS_AUTHENTICATED_FULLY }
 
 

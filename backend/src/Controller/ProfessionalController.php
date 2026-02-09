@@ -20,193 +20,210 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
 use App\Repository\MessageRepository;
 use Symfony\Component\HttpKernel\KernelInterface;
 use Psr\Log\LoggerInterface;
-
+use Stripe\StripeClient;
 
 
 class ProfessionalController extends AbstractController
 {
-    #[Route('/api/professionals', name: 'create_professional', methods: ['POST'])]
-    public function create(
-        Request $request,
-        EntityManagerInterface $em,
-        ValidatorInterface $validator,
-        SiretValidator $siretValidator,
-        GeocodingService $geocoder,
-        UserPasswordHasherInterface $passwordHasher,
-        KernelInterface $kernel,
-        LoggerInterface $logger,
+#[Route('/api/professionals', name: 'create_professional', methods: ['POST'])]
+public function create(
+    Request $request,
+    EntityManagerInterface $em,
+    ValidatorInterface $validator,
+    SiretValidator $siretValidator,
+    GeocodingService $geocoder,
+    UserPasswordHasherInterface $passwordHasher,
+    KernelInterface $kernel,
+    LoggerInterface $logger
+): JsonResponse {
 
-    ): JsonResponse {
+    // ✅ multipart/form-data
+    $data = $request->request->all();
 
-        // ✅ multipart/form-data
-        $data = $request->request->all();
+    // ✅ DEBUG : voir ce qui arrive vraiment
+    $logger->info('CREATE_PROFESSIONAL_FIELDS', ['fields' => array_keys($data)]);
+    $logger->info('CREATE_PROFESSIONAL_FILES',  ['files'  => array_keys($request->files->all())]);
 
-
-        // Champs obligatoires (texte)
-        if (
-            empty($data['email']) ||
-            empty($data['password']) ||
-            empty($data['specialityId']) ||
-            empty($data['phone']) ||
-            empty($data['postalCode']) ||
-            empty($data['zone'])
-        ) {
-            return $this->json(['error' => 'Champs manquants'], Response::HTTP_BAD_REQUEST);
-        }
-
-    // ✅ documents obligatoires
-        /** @var UploadedFile|null $assurance */
-        $assurance = $request->files->get('assurance');
-        /** @var UploadedFile|null $identity */
-        $identity = $request->files->get('identity');
-        /** @var UploadedFile|null $proTitle */
-        $proTitle = $request->files->get('proTitle');
-
-        if (!$assurance || !$identity || !$proTitle) {
-            return $this->json([
-                'error' => 'Documents manquants',
-                'violations' => [
-                    'assurance' => !$assurance ? ['Assurance requise.'] : [],
-                    'identity'  => !$identity ? ['Pièce d’identité requise.'] : [],
-                    'proTitle'  => !$proTitle ? ['Titre pro requis.'] : [],
-                ]
-            ], Response::HTTP_BAD_REQUEST);
-        }
-
-        // RIB: soit texte, soit fichier
-        $ribIban = $data['ribIban'] ?? null;
-        /** @var UploadedFile|null $ribFile */
-        $ribFile = $request->files->get('ribFile');
-
-        if (!$ribIban && !$ribFile) {
-            return $this->json([
-                'error' => 'RIB requis',
-                'violations' => [
-                    'ribIban' => ['Fournir un IBAN ou un fichier RIB.']
-                ]
-            ], Response::HTTP_BAD_REQUEST);
-        }
-
-        // Vérifier si email existe
-        if ($em->getRepository(User::class)->findOneBy(['email' => $data['email']])) {
-            return $this->json(['error' => 'Cet email est déjà utilisé.'], Response::HTTP_CONFLICT);
-        }
-
-        // Spécialité
-        $speciality = $em->getRepository(Speciality::class)->find($data['specialityId']);
-        if (!$speciality) {
-            return $this->json(['error' => 'Spécialité invalide'], Response::HTTP_BAD_REQUEST);
-        }
-
-        // Création user
-        $user = new User();
-        $user->setEmail($data['email']);
-        $user->setRoles(['ROLE_PROFESSIONAL']);
-        $user->setPassword($passwordHasher->hashPassword($user, $data['password']));
-
-        // Création pro
-        $pro = new Professional();
-        $pro->setFullName($data['fullName'] ?? '');
-        $pro->setSpeciality($speciality);
-        $pro->setDescription($data['description'] ?? '');
-        $pro->setZone($data['zone']);
-        $pro->setPostalCode($data['postalCode']);
-        $pro->setPricePerHour((float)($data['pricePerHour'] ?? 0));
-        $pro->setAvailability(true);
-        $pro->setSiret($data['siret'] ?? '');
-        $pro->setPhoneNumber($data['phone']);
-        $pro->setUser($user);
-
-        // RIB texte (si fourni)
-        if ($ribIban) {
-            $pro->setRibIban(str_replace(' ', '', $ribIban));
-        }
-
-        // Vérif SIRET
-        $sirene = $siretValidator->checkSiret($pro->getSiret());
-        if (!$sirene['valid']) {
-            return $this->json([
-                'error' => 'SIRET invalide',
-                'details' => $sirene['message'] ?? 'Erreur SIRENE'
-            ], Response::HTTP_BAD_REQUEST);
-        }
-
-        $entreprise = $sirene['data']['uniteLegale']['denominationUniteLegale'] ?? null;
-        $pro->setCompanyName($entreprise);
-
-        // Geocoding
-        $fullAddress = $pro->getPostalCode() . ' ' . $pro->getZone();
-        $coords = $geocoder->geocode($fullAddress);
-        if (!$coords) {
-            return $this->json(['error' => 'Impossible de géocoder le code postal + la ville fournis.'], Response::HTTP_BAD_REQUEST);
-        }
-        $pro->setLatitude($coords['lat']);
-        $pro->setLongitude($coords['lng']);
-        $user->setLatitude($coords['lat']);
-        $user->setLongitude($coords['lng']);
-
-        // ✅ Upload fichiers
-        $uploadDir = $kernel->getProjectDir() . '/public/uploads/professional_docs';
-
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0775, true);
-        }
-
-        $saveUpload = function (UploadedFile $file) use ($uploadDir): string {
-            // sécurité basique + nom unique
-            $ext = strtolower($file->guessExtension() ?: $file->getClientOriginalExtension() ?: 'bin');
-            $safeExt = in_array($ext, ['pdf', 'png', 'jpg', 'jpeg'], true) ? $ext : 'bin';
-            $name = bin2hex(random_bytes(16)) . '.' . $safeExt;
-            $file->move($uploadDir, $name);
-            return '/uploads/professional_docs/' . $name; // chemin public
-        };
-
-        $pro->setAssuranceDoc($saveUpload($assurance));
-        $pro->setIdentityDoc($saveUpload($identity));
-        $pro->setProTitleDoc($saveUpload($proTitle));
-
-        if ($ribFile) {
-            $pro->setRibDoc($saveUpload($ribFile));
-        }
-
-        // Validation entity (inclut IBAN si présent)
-        $errors = $validator->validate($pro);
-        if (count($errors) > 0) {
-            $violations = [];
-            foreach ($errors as $e) {
-                $violations[$e->getPropertyPath()][] = $e->getMessage();
-            }
-            return $this->json(['error' => 'Validation échouée', 'violations' => $violations], Response::HTTP_BAD_REQUEST);
-        }
-
-        $em->persist($user);
-        $em->persist($pro);
-        $em->flush();
-
-        return $this->json(
-            [
-                'message' => 'Inscription professionnelle réussie',
-                'professional' => [
-                    'id' => $pro->getId(),
-                    'email' => $user->getEmail(),
-                    'fullName' => $pro->getFullName(),
-                    'speciality' => $speciality->getName(),
-                    'siret' => $pro->getSiret(),
-                    'companyName' => $pro->getCompanyName(),
-                    'phone' => $pro->getPhoneNumber(),
-                    'postalCode' => $pro->getPostalCode(),
-                    'lat' => $pro->getLatitude(),
-                    'lng' => $pro->getLongitude(),
-                    'assuranceDoc' => $pro->getAssuranceDoc(),
-                    'identityDoc' => $pro->getIdentityDoc(),
-                    'proTitleDoc' => $pro->getProTitleDoc(),
-                    'ribIban' => $pro->getRibIban(),
-                    'ribDoc' => $pro->getRibDoc(),
-                ]
-            ],
-            Response::HTTP_CREATED
-        );
+    // Champs obligatoires
+    if (
+        empty($data['email']) ||
+        empty($data['password']) ||
+        empty($data['specialityId']) ||
+        empty($data['phone']) ||
+        empty($data['postalCode']) ||
+        empty($data['zone'])
+    ) {
+        return $this->json(['error' => 'Champs manquants'], Response::HTTP_BAD_REQUEST);
     }
+
+    /** @var UploadedFile|null $assurance */
+    $assurance = $request->files->get('assurance');
+    /** @var UploadedFile|null $identity */
+    $identity = $request->files->get('identity');
+    /** @var UploadedFile|null $proTitle */
+    $proTitle = $request->files->get('proTitle');
+
+    if (!$assurance || !$identity || !$proTitle) {
+        return $this->json([
+            'error' => 'Documents manquants',
+            'violations' => [
+                'assurance' => !$assurance ? ['Assurance requise.'] : [],
+                'identity'  => !$identity ? ['Pièce d’identité requise.'] : [],
+                'proTitle'  => !$proTitle ? ['Titre pro requis.'] : [],
+            ]
+        ], Response::HTTP_BAD_REQUEST);
+    }
+
+    // RIB : soit texte soit fichier
+    $ribIban = $data['ribIban'] ?? null;
+    /** @var UploadedFile|null $ribFile */
+    $ribFile = $request->files->get('ribFile');
+
+    if (!$ribIban && !$ribFile) {
+        return $this->json([
+            'error' => 'RIB requis',
+            'violations' => [
+                'ribIban' => ['Fournir un IBAN ou un fichier RIB.']
+            ]
+        ], Response::HTTP_BAD_REQUEST);
+    }
+
+    // Vérifier email unique
+    if ($em->getRepository(User::class)->findOneBy(['email' => $data['email']])) {
+        return $this->json(['error' => 'Cet email est déjà utilisé.'], Response::HTTP_CONFLICT);
+    }
+
+    // Spécialité
+    $speciality = $em->getRepository(Speciality::class)->find((int)$data['specialityId']);
+    if (!$speciality) {
+        return $this->json(['error' => 'Spécialité invalide'], Response::HTTP_BAD_REQUEST);
+    }
+
+    // Création user
+    $user = new User();
+    $user->setEmail(trim($data['email']));
+    $user->setRoles(['ROLE_PROFESSIONAL']);
+    $user->setPassword($passwordHasher->hashPassword($user, $data['password']));
+
+    // Création pro
+    $pro = new Professional();
+    $pro->setFullName($data['fullName'] ?? '');
+    $pro->setSpeciality($speciality);
+    $pro->setDescription($data['description'] ?? '');
+    $pro->setZone($data['zone']);
+    $pro->setPostalCode($data['postalCode']);
+    $pro->setPricePerHour((float)($data['pricePerHour'] ?? 0));
+    $pro->setAvailability(true);
+    $pro->setSiret($data['siret'] ?? '');
+    $pro->setPhoneNumber($data['phone']);
+    $pro->setUser($user);
+
+    // RIB texte
+    if ($ribIban) {
+        $pro->setRibIban(str_replace(' ', '', $ribIban));
+    }
+
+    // ✅ PHOTO PROFIL (optionnelle)
+    /** @var UploadedFile|null $profilePicture */
+    $profilePicture = $request->files->get('profilePicture');
+
+    if ($profilePicture) {
+        $ext = strtolower($profilePicture->guessExtension() ?: $profilePicture->getClientOriginalExtension() ?: '');
+        if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp'], true)) {
+            return $this->json(['error' => 'Format photo invalide (jpg/jpeg/png/webp)'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $profileDir = $kernel->getProjectDir() . '/public/uploads/profiles';
+        if (!is_dir($profileDir)) {
+            mkdir($profileDir, 0775, true);
+        }
+
+        $filename = 'pro_' . bin2hex(random_bytes(12)) . '.' . $ext;
+        $profilePicture->move($profileDir, $filename);
+        $pro->setProfilePicture('/uploads/profiles/' . $filename);
+    }
+
+    // Vérif SIRET
+    $sirene = $siretValidator->checkSiret($pro->getSiret());
+    if (!$sirene['valid']) {
+        return $this->json([
+            'error' => 'SIRET invalide',
+            'details' => $sirene['message'] ?? 'Erreur SIRENE'
+        ], Response::HTTP_BAD_REQUEST);
+    }
+
+    $entreprise = $sirene['data']['uniteLegale']['denominationUniteLegale'] ?? null;
+    $pro->setCompanyName($entreprise);
+
+    // Geocoding
+    $coords = $geocoder->geocode($pro->getPostalCode() . ' ' . $pro->getZone());
+    if (!$coords) {
+        return $this->json(['error' => 'Impossible de géocoder le code postal + la ville fournis.'], Response::HTTP_BAD_REQUEST);
+    }
+    $pro->setLatitude($coords['lat']);
+    $pro->setLongitude($coords['lng']);
+    $user->setLatitude($coords['lat']);
+    $user->setLongitude($coords['lng']);
+
+    // ✅ Upload docs pro
+    $docsDir = $kernel->getProjectDir() . '/public/uploads/professional_docs';
+    if (!is_dir($docsDir)) {
+        mkdir($docsDir, 0775, true);
+    }
+
+    $saveDoc = function (UploadedFile $file) use ($docsDir): string {
+        $ext = strtolower($file->guessExtension() ?: $file->getClientOriginalExtension() ?: 'bin');
+        $safeExt = in_array($ext, ['pdf', 'png', 'jpg', 'jpeg'], true) ? $ext : 'bin';
+        $name = bin2hex(random_bytes(16)) . '.' . $safeExt;
+        $file->move($docsDir, $name);
+        return '/uploads/professional_docs/' . $name;
+    };
+
+    $pro->setAssuranceDoc($saveDoc($assurance));
+    $pro->setIdentityDoc($saveDoc($identity));
+    $pro->setProTitleDoc($saveDoc($proTitle));
+
+    if ($ribFile) {
+        $pro->setRibDoc($saveDoc($ribFile));
+    }
+
+    // Validation entity
+    $errors = $validator->validate($pro);
+    if (count($errors) > 0) {
+        $violations = [];
+        foreach ($errors as $e) {
+            $violations[$e->getPropertyPath()][] = $e->getMessage();
+        }
+        return $this->json(['error' => 'Validation échouée', 'violations' => $violations], Response::HTTP_BAD_REQUEST);
+    }
+
+    $em->persist($user);
+    $em->persist($pro);
+    $em->flush();
+
+    return $this->json([
+        'message' => 'Inscription professionnelle réussie',
+        'professional' => [
+            'id' => $pro->getId(),
+            'email' => $user->getEmail(),
+            'fullName' => $pro->getFullName(),
+            'speciality' => $speciality->getName(),
+            'siret' => $pro->getSiret(),
+            'companyName' => $pro->getCompanyName(),
+            'phone' => $pro->getPhoneNumber(),
+            'postalCode' => $pro->getPostalCode(),
+            'lat' => $pro->getLatitude(),
+            'lng' => $pro->getLongitude(),
+            'assuranceDoc' => $pro->getAssuranceDoc(),
+            'identityDoc' => $pro->getIdentityDoc(),
+            'proTitleDoc' => $pro->getProTitleDoc(),
+            'ribIban' => $pro->getRibIban(),
+            'ribDoc' => $pro->getRibDoc(),
+            'profilePicture' => $pro->getProfilePicture(),
+        ]
+    ], Response::HTTP_CREATED);
+}
+
 
     #[Route('/api/professionals/{id}/upload', name: 'upload_profile_picture', methods: ['POST'])]
     public function uploadProfilePicture(
@@ -287,8 +304,12 @@ class ProfessionalController extends AbstractController
                 'phoneNumber'   => $pro['phone_number'],
                 'profilePicture' => $pro['profile_picture'],
                 'distance'      => isset($pro['distance']) ? round(floatval($pro['distance']), 1) : null,
+                'avgRating'    => isset($pro['avg_rating']) ? round((float) $pro['avg_rating'], 1) : null,
+                'ratingCount'  => isset($pro['rating_count']) ? (int) $pro['rating_count'] : 0,
+
             ];
         }, $pros);
+        // dump($data[0]['profilePicture'] ?? null);
 
         return $this->json($data);
     }
@@ -494,12 +515,11 @@ class ProfessionalController extends AbstractController
 
 
 
-
     #[Route('/api/pro/messages/{clientId}', methods: ['GET'])]
     public function proConversation(
         int $clientId,
         EntityManagerInterface $em,
-        MessageRepository $messageRepo
+        \App\Repository\MessageRepository $messageRepo
     ): JsonResponse {
         $user = $this->getUser();
         if (!$user instanceof User) return $this->json(['error' => 'Unauthorized'], 401);
@@ -510,12 +530,21 @@ class ProfessionalController extends AbstractController
         $client = $em->getRepository(User::class)->find($clientId);
         if (!$client) return $this->json(['error' => 'Client not found'], 404);
 
+        // ✅ Messages
         $messages = $messageRepo->findConversation($client->getId(), $user->getId());
-
-        // ✅ marquer comme lu (messages envoyés par le client au pro)
         $messageRepo->markAsRead($client->getId(), $user->getId());
 
+        // ✅ Offres envoyées par CE client à CE pro
+        $offers = $em->getRepository(Offer::class)->findBy(
+            [
+                'client' => $client,
+                'professional' => $pro
+            ],
+            ['createdAt' => 'ASC']
+        );
+
         $conversation = [];
+
         foreach ($messages as $m) {
             $conversation[] = [
                 'type' => 'message',
@@ -526,6 +555,20 @@ class ProfessionalController extends AbstractController
                 'createdAt' => $m->getCreatedAt()->getTimestamp(),
             ];
         }
+
+        foreach ($offers as $o) {
+            $conversation[] = [
+                'type' => 'offer',
+                'id' => $o->getId(),
+                'price' => $o->getPrice(),
+                'status' => $o->getStatus(),
+                'message' => $o->getMessage(),
+                'isMine' => false, // côté pro, l'offre vient du client
+                'createdAt' => $o->getCreatedAt()->getTimestamp(),
+            ];
+        }
+
+        usort($conversation, fn($a, $b) => $a['createdAt'] <=> $b['createdAt']);
 
         return $this->json($conversation, 200);
     }
@@ -605,6 +648,78 @@ class ProfessionalController extends AbstractController
         return $this->json(['success' => true, 'status' => 'pending']);
     }
 
+
+
+
+
+    #[Route('/api/pro/offers/{id}/accept', methods: ['POST'])]
+    public function acceptOffer(int $id, EntityManagerInterface $em): JsonResponse
+    {
+        $user = $this->getUser();
+        if (!$user instanceof User) {
+            return $this->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $pro = $em->getRepository(Professional::class)->findOneBy(['user' => $user]);
+        if (!$pro) {
+            return $this->json(['error' => 'Professional not found'], 404);
+        }
+
+        $offer = $em->getRepository(Offer::class)->find($id);
+        if (!$offer) {
+            return $this->json(['error' => 'Offer not found'], 404);
+        }
+
+        // sécurité : l’offre doit appartenir au pro connecté
+        if ($offer->getProfessional()->getId() !== $pro->getId()) {
+            return $this->json(['error' => 'Forbidden'], 403);
+        }
+
+        if ($offer->getStatus() !== 'pending') {
+            return $this->json(['error' => 'Offer not pending'], 400);
+        }
+
+        $offer->setStatus('accepted');
+        $em->flush();
+
+        return $this->json(['success' => true, 'status' => 'accepted'], 200);
+    }
+
+
+
+
+
+    #[Route('/api/pro/offers/{id}/refuse', methods: ['POST'])]
+    public function refuseOffer(int $id, EntityManagerInterface $em): JsonResponse
+    {
+        $user = $this->getUser();
+        if (!$user instanceof User) {
+            return $this->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $pro = $em->getRepository(Professional::class)->findOneBy(['user' => $user]);
+        if (!$pro) {
+            return $this->json(['error' => 'Professional not found'], 404);
+        }
+
+        $offer = $em->getRepository(Offer::class)->find($id);
+        if (!$offer) {
+            return $this->json(['error' => 'Offer not found'], 404);
+        }
+
+        if ($offer->getProfessional()->getId() !== $pro->getId()) {
+            return $this->json(['error' => 'Forbidden'], 403);
+        }
+
+        if ($offer->getStatus() !== 'pending') {
+            return $this->json(['error' => 'Offer not pending'], 400);
+        }
+
+        $offer->setStatus('refused');
+        $em->flush();
+
+        return $this->json(['success' => true, 'status' => 'refused'], 200);
+    }
 
     // ✅ Bloque email + téléphone (sécurité chat)
     private function containsEmailOrPhone(string $text): bool

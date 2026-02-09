@@ -6,16 +6,12 @@ use App\Entity\Professional;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
-/**
- * @extends ServiceEntityRepository<Professional>
- */
 class ProfessionalRepository extends ServiceEntityRepository
 {
     public function __construct(ManagerRegistry $registry)
     {
         parent::__construct($registry, Professional::class);
     }
-
 
     public function searchProfessionals(
         ?string $speciality,
@@ -26,7 +22,7 @@ class ProfessionalRepository extends ServiceEntityRepository
     ): array {
         $conn = $this->getEntityManager()->getConnection();
 
-        // Distance Haversine ou valeur fixe si pas de coords
+        // 🌍 Distance (Haversine) ou valeur fixe
         $distanceSql = ($lat !== null && $lng !== null)
             ? "(6371 * acos(
                 cos(radians(:lat)) 
@@ -38,41 +34,47 @@ class ProfessionalRepository extends ServiceEntityRepository
             : "99999";
 
         $sql = "
-        SELECT 
-            p.*,
-            $distanceSql AS distance,
-            s.name AS speciality
-        FROM professional p
-        INNER JOIN speciality s ON p.speciality_id = s.id
-        WHERE p.availability = 1
-    ";
+            SELECT 
+                p.*,
+                s.name AS speciality,
+                $distanceSql AS distance,
+                AVG(r.value) AS avg_rating,
+                COUNT(r.id) AS rating_count
+            FROM professional p
+            INNER JOIN speciality s ON p.speciality_id = s.id
+            LEFT JOIN rating r ON r.professional_id = p.id
+            WHERE p.availability = 1
+        ";
 
         $params = [];
 
-        // Filtre spécialité
+        // 🔎 Filtre spécialité
         if ($speciality) {
             $sql .= " AND s.name LIKE :spec";
             $params['spec'] = "%$speciality%";
         }
 
-        // Filtre zone (SI TU EN VEUX PLUS TARD)
+        // 📍 Filtre zone
         if ($zone) {
             $sql .= " AND LOWER(p.zone) LIKE LOWER(:zone)";
             $params['zone'] = "%$zone%";
         }
 
-        // Recherche textuelle
+        // 🔍 Recherche texte
         if ($query) {
             $sql .= "
-            AND (
-                p.full_name LIKE :q
-                OR p.company_name LIKE :q
-            )
-        ";
+                AND (
+                    p.full_name LIKE :q
+                    OR p.company_name LIKE :q
+                )
+            ";
             $params['q'] = "%$query%";
         }
 
-        // TRI
+        // ⭐ GROUP BY obligatoire pour AVG / COUNT
+        $sql .= " GROUP BY p.id, s.name";
+
+        // 📊 TRI
         if ($lat !== null && $lng !== null) {
             $params['lat'] = $lat;
             $params['lng'] = $lng;
@@ -81,15 +83,15 @@ class ProfessionalRepository extends ServiceEntityRepository
             $sql .= " ORDER BY p.price_per_hour ASC";
         }
 
-        // 🚀 LIMITER à 10 RÉSULTATS — C’EST CE QUE TU VEUX EXACTEMENT
+        // 🚀 Limite
         $sql .= " LIMIT 10";
 
-        // EXECUTION
         $stmt = $conn->prepare($sql);
         $result = $stmt->executeQuery($params);
 
         return $result->fetchAllAssociative();
     }
+}
 
 
 
@@ -118,4 +120,3 @@ class ProfessionalRepository extends ServiceEntityRepository
     //            ->getOneOrNullResult()
     //        ;
     //    }
-}

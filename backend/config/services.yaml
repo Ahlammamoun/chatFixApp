@@ -3,6 +3,10 @@ services:
     autowire: true
     autoconfigure: true
 
+  Stripe\StripeClient:
+    arguments:
+      $config: '%env(STRIPE_SECRET_KEY)%'
+      
   App\Service\SiretValidator:
     arguments:
       $httpClient: '@http_client'
